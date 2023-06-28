@@ -9,9 +9,16 @@ import SwiftUI
 
 @main
 struct WallpaperApp: App {
+    @StateObject private var engine = WallpaperEngine()
+    
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra("App Menu Bar Extra", systemImage: "star") {
+           
+            Button("Toggle Wallpaper Engine") { engine.toggle() }
+           
+            Divider()
+
+            Button("Exit") { NSApplication.shared.terminate(nil) }
         }
     }
 }
