@@ -10,9 +10,6 @@ import AppKit
 class WallpaperEngine: ObservableObject {
     @Published private(set) var isRunning = false
     
-    /**
-     - ToDo: usleep based on video length and frames
-     */
     func toggle() {
         if isRunning {
             isRunning = false
@@ -39,10 +36,12 @@ class WallpaperEngine: ObservableObject {
             while self.isRunning {
                 do {
                     
+                    let frame = frameList[index]
+                    
                     // gets URL through index key from {frameList}
-                    try workspace.setDesktopImageURL(frameList[index]!, for: screen!, options: options!)
+                    try workspace.setDesktopImageURL(frame.0, for: screen!, options: options!)
                     // pause distance
-                    usleep(3333)
+                    usleep(frame.1)
                     
                     // increments index (key)
                     index += 1
@@ -58,32 +57,41 @@ class WallpaperEngine: ObservableObject {
         print("\(type(of: self)) \(#function)")
     }
     
-    private func getSequence(forResource: String) -> [Int: URL] {
+    /**
+     - Returns: in microseconds
+     */
+    private func getFrameDuration(from imageSource: CGImageSource, at index: Int) -> UInt32 {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, index, nil) as? [String: Any],
+              let gifProperties = properties[kCGImagePropertyGIFDictionary as String] as? [String: Any],
+              
+              /// - Returns: in seconds
+              let unclampedDelayTime = gifProperties[kCGImagePropertyGIFUnclampedDelayTime as String] as? Double
+        else {
+            return UInt32()
+        }
+        
+        return UInt32(unclampedDelayTime * 1_000_000)
+    }
+    
+    private func getSequence(forResource: String) -> [(URL, UInt32)] {
         guard let bundleURL = Bundle.main.url(forResource: forResource, withExtension: "gif")
         else {
             print("\(type(of: self)) \(#function) This resource file \"\(forResource)\" does not exist!")
-            return [:]
+            return []
         }
         
         guard let gifData = try? Data(contentsOf: bundleURL) else {
             print("\(type(of: self)) \(#function) Cannot turn resource file \"\(forResource)\" into NSData")
-            return [:]
+            return []
         }
         
-        let gifOptions = [
-            kCGImageSourceShouldAllowFloat as String : true as NSNumber,
-            kCGImageSourceCreateThumbnailWithTransform as String : true as NSNumber,
-            kCGImageSourceCreateThumbnailFromImageAlways as String : true as NSNumber
-        ] as CFDictionary
-        
-        guard let imageSource = CGImageSourceCreateWithData(gifData as CFData, gifOptions)
+        guard let imageSource = CGImageSourceCreateWithData(gifData as CFData, nil)
         else {
             print("\(type(of: self)) \(#function) Cannot create image source with the data!")
-            return [:]
+            return []
         }
         
-        // dictionary to store URLs
-        var framesURL: Dictionary<Int, URL> = [:]
+        var framesURL: [(URL, UInt32)] = []
         
         // create temporary directory to store images
         let tempURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -92,10 +100,11 @@ class WallpaperEngine: ObservableObject {
         let ctx = CIContext.init()
         
         // number of frames
-        print("\(type(of: self)) \(#function) Number of frames \(CGImageSourceGetCount(imageSource))")
+        let frameCount = CGImageSourceGetCount(imageSource)
+        print("\(type(of: self)) \(#function) Number of frames \(frameCount)")
         
         // through each frame of gif
-        for index in 0...(CGImageSourceGetCount(imageSource) - 1) {
+        for index in 0...(frameCount - 1) {
             
             // current images random URL within temporary directory
             let tempFileName = ProcessInfo().globallyUniqueString
@@ -115,8 +124,10 @@ class WallpaperEngine: ObservableObject {
                     options: [:]
                 )
                 
+                let frameDuration = getFrameDuration(from: imageSource, at: index)
+                
                 // write into dictionary
-                framesURL[index] = tempFileURL
+                framesURL.append((tempFileURL, frameDuration))
                 
             } catch {}
             
